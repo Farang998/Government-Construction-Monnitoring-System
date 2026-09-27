@@ -71,6 +71,8 @@ docker compose up -d
 ```
 
 ---
+## Deployment Link
+https://gov-construction-monitoring.vercel.app/
 
 ## 🔐 Pre-seeded Test Credentials
 
