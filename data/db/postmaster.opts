@@ -1,0 +1,1 @@
+E:/DA_IM/ConstructionMonitoring/node_modules/@embedded-postgres/windows-x64/native/bin/postgres.exe "-D" "E:\DA_IM\ConstructionMonitoring\data\db" "-p" "5432"

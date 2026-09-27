@@ -1,0 +1,1009 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// 1. IDENTITY & ORGANIZATION ENUMS & MODELS
+// ==========================================
+
+enum OrganizationType {
+  STATE_GOVERNMENT
+  CENTRAL_GOVERNMENT
+  PUBLIC_SECTOR_UNDERTAKING
+  MUNICIPAL_CORPORATION
+}
+
+enum OfficeType {
+  HEAD_OFFICE
+  CIRCLE_OFFICE
+  DIVISION_OFFICE
+  SUB_DIVISION_OFFICE
+  FIELD_OFFICE
+}
+
+enum UserRoleType {
+  SUPER_ADMIN
+  DEPT_SECRETARY
+  CHIEF_ENGINEER
+  SUPERINTENDING_ENGINEER
+  EXECUTIVE_ENGINEER
+  ASSISTANT_ENGINEER
+  JUNIOR_ENGINEER
+  FINANCE_CONTROLLER
+  QUALITY_AUDITOR
+  CONTRACTOR
+  PUBLIC_AUDITOR
+}
+
+model Organization {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique @db.VarChar(50)
+  name        String           @db.VarChar(255)
+  type        OrganizationType @default(STATE_GOVERNMENT)
+  state       String           @db.VarChar(100)
+  departments Department[]
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("organizations")
+}
+
+model Department {
+  id                       String        @id @default(uuid()) @db.Uuid
+  organizationId           String        @map("organization_id") @db.Uuid
+  organization             Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  code                     String        @unique @db.VarChar(50)
+  name                     String        @db.VarChar(255)
+  headOfDepartmentId       String?       @map("head_of_department_id") @db.Uuid
+  offices                  Office[]
+  administrativeProjects   Project[]     @relation("AdministrativeDepartment")
+  implementingProjects     Project[]     @relation("ImplementingDepartment")
+  createdAt                DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("departments")
+}
+
+model Office {
+  id              String         @id @default(uuid()) @db.Uuid
+  departmentId    String         @map("department_id") @db.Uuid
+  department      Department     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  parentOfficeId  String?        @map("parent_office_id") @db.Uuid
+  parentOffice    Office?        @relation("OfficeHierarchy", fields: [parentOfficeId], references: [id], onDelete: Restrict)
+  childOffices    Office[]       @relation("OfficeHierarchy")
+  officeType      OfficeType     @map("office_type")
+  code            String         @unique @db.VarChar(50)
+  name            String         @db.VarChar(255)
+  state           String         @db.VarChar(100)
+  district        String         @db.VarChar(100)
+  address         String?        @db.Text
+  users           User[]
+  executingProjects Project[]    @relation("ExecutingOffice")
+  assignedTasks   WorkflowTask[] @relation("AssignedOffice")
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("offices")
+}
+
+model Designation {
+  id                  String         @id @default(uuid()) @db.Uuid
+  code                String         @unique @db.VarChar(50)
+  title               String         @db.VarChar(150)
+  hierarchyLevel      Int            @map("hierarchy_level")
+  approvalLimitInr    Decimal        @default(0.00) @map("approval_limit_inr") @db.Decimal(15, 2)
+  users               User[]
+  assignedTasks       WorkflowTask[] @relation("AssignedDesignation")
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("designations")
+}
+
+model Jurisdiction {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  state       String   @db.VarChar(100)
+  district    String   @db.VarChar(100)
+  circle      String?  @db.VarChar(150)
+  division    String?  @db.VarChar(150)
+  subDivision String?  @map("sub_division") @db.VarChar(150)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("jurisdictions")
+}
+
+model Role {
+  id              String           @id @default(uuid()) @db.Uuid
+  roleType        UserRoleType     @unique @map("role_type")
+  name            String           @db.VarChar(100)
+  description     String?          @db.Text
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid()) @db.Uuid
+  actionCode      String           @unique @map("action_code") @db.VarChar(100)
+  module          String           @db.VarChar(100)
+  description     String?          @db.Text
+  rolePermissions RolePermission[]
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid()) @db.Uuid
+  roleId       String     @map("role_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String     @map("permission_id") @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String   @map("role_id") @db.Uuid
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model User {
+  id               String            @id @default(uuid()) @db.Uuid
+  employeeId       String            @unique @map("employee_id") @db.VarChar(100)
+  email            String            @unique @db.VarChar(255)
+  phoneNumber      String            @unique @map("phone_number") @db.VarChar(20)
+  passwordHash     String            @map("password_hash") @db.VarChar(255)
+  fullName         String            @map("full_name") @db.VarChar(255)
+  officeId         String            @map("office_id") @db.Uuid
+  office           Office            @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  designationId    String            @map("designation_id") @db.Uuid
+  designation      Designation       @relation(fields: [designationId], references: [id], onDelete: Restrict)
+  isActive         Boolean           @default(true) @map("is_active")
+  lastLoginAt      DateTime?         @map("last_login_at") @db.Timestamptz
+  jurisdictions    Jurisdiction[]
+  userRoles        UserRole[]
+  managedProjects  Project[]         @relation("ProjectManager")
+  ownedProjects    Project[]         @relation("ProjectOwner")
+  createdProjects  Project[]         @relation("ProjectCreator")
+  assignedTasks    WorkflowTask[]    @relation("AssignedUser")
+  delegatedTasks   ApprovalHistory[] @relation("DelegatedToUser")
+  approvalActions  ApprovalHistory[] @relation("ApprovalActor")
+  uploadedVersions DocumentVersion[] @relation("UploadedByUser")
+  inspectionsLed   Inspection[]      @relation("InspectionLead")
+  auditEvents      AuditEvent[]
+  notifications    Notification[]
+  projectAccesses  ProjectAccess[]
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([officeId])
+  @@index([designationId])
+  @@map("users")
+}
+
+// ==========================================
+// 2. PROJECT REGISTRY & MASTER MODELS
+// ==========================================
+
+enum ProjectStatus {
+  PROPOSED
+  UNDER_SCRUTINY
+  FEASIBILITY_APPROVED
+  ADMINISTRATIVELY_APPROVED
+  LAND_CLEARANCE_IN_PROGRESS
+  DPR_PREPARATION
+  TECHNICAL_SANCTIONED
+  FINANCIAL_APPROVED
+  STATUTORY_CLEARANCES
+  TENDER_PREPARATION
+  TENDER_PUBLISHED
+  BID_EVALUATION
+  CONTRACT_AWARDED
+  WORK_ORDER_ISSUED
+  SITE_MOBILIZATION
+  IN_CONSTRUCTION
+  WORK_SUSPENDED
+  TESTING_COMMISSIONING
+  COMPLETION_CERTIFIED
+  HANDED_OVER
+  DEFECT_LIABILITY
+  CLOSED
+  CANCELLED
+}
+
+model ProjectType {
+  id                        String            @id @default(uuid()) @db.Uuid
+  code                      String            @unique @db.VarChar(50)
+  name                      String            @db.VarChar(100)
+  description               String?           @db.Text
+  defaultWorkflowTemplateId String?           @map("default_workflow_template_id") @db.Uuid
+  defaultWorkflowTemplate   WorkflowTemplate? @relation(fields: [defaultWorkflowTemplateId], references: [id], onDelete: SetNull)
+  projects                  Project[]
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("project_types")
+}
+
+model Project {
+  id                         String                  @id @default(uuid()) @db.Uuid
+  projectCode                String                  @unique @map("project_code") @db.VarChar(100)
+  name                       String                  @db.VarChar(300)
+  shortDescription           String                  @map("short_description") @db.VarChar(500)
+  detailedDescription        String?                 @map("detailed_description") @db.Text
+  projectTypeId              String                  @map("project_type_id") @db.Uuid
+  projectType                ProjectType             @relation(fields: [projectTypeId], references: [id], onDelete: Restrict)
+  administrativeDepartmentId String                  @map("administrative_department_id") @db.Uuid
+  administrativeDepartment   Department              @relation("AdministrativeDepartment", fields: [administrativeDepartmentId], references: [id], onDelete: Restrict)
+  implementingDepartmentId   String                  @map("implementing_department_id") @db.Uuid
+  implementingDepartment     Department              @relation("ImplementingDepartment", fields: [implementingDepartmentId], references: [id], onDelete: Restrict)
+  executingOfficeId          String                  @map("executing_office_id") @db.Uuid
+  executingOffice            Office                  @relation("ExecutingOffice", fields: [executingOfficeId], references: [id], onDelete: Restrict)
+  projectOwnerId             String                  @map("project_owner_id") @db.Uuid
+  projectOwner               User                    @relation("ProjectOwner", fields: [projectOwnerId], references: [id], onDelete: Restrict)
+  projectManagerId           String                  @map("project_manager_id") @db.Uuid
+  projectManager             User                    @relation("ProjectManager", fields: [projectManagerId], references: [id], onDelete: Restrict)
+  status                     ProjectStatus           @default(PROPOSED)
+  currentStage               String                  @map("current_stage") @db.VarChar(100)
+  state                      String                  @db.VarChar(100)
+  district                   String                  @db.VarChar(100)
+  taluka                     String                  @db.VarChar(100)
+  cityVillage                String                  @map("city_village") @db.VarChar(100)
+  latitude                   Decimal?                @db.Decimal(10, 7)
+  longitude                  Decimal?                @db.Decimal(10, 7)
+  gisGeometry                Json?                   @map("gis_geometry")
+  estimatedCostInr           Decimal                 @map("estimated_cost_inr") @db.Decimal(15, 2)
+  sanctionedCostInr          Decimal?                @map("sanctioned_cost_inr") @db.Decimal(15, 2)
+  contractValueInr           Decimal?                @map("contract_value_inr") @db.Decimal(15, 2)
+  totalExpenditureInr        Decimal                 @default(0.00) @map("total_expenditure_inr") @db.Decimal(15, 2)
+  fundingSource              String                  @map("funding_source") @db.VarChar(100)
+  plannedStartDate           DateTime                @map("planned_start_date") @db.Date
+  plannedEndDate             DateTime                @map("planned_end_date") @db.Date
+  revisedEndDate             DateTime?               @map("revised_end_date") @db.Date
+  actualStartDate            DateTime?               @map("actual_start_date") @db.Date
+  actualEndDate              DateTime?               @map("actual_end_date") @db.Date
+  physicalProgressPct        Decimal                 @default(0.00) @map("physical_progress_pct") @db.Decimal(5, 2)
+  financialProgressPct       Decimal                 @default(0.00) @map("financial_progress_pct") @db.Decimal(5, 2)
+  plannedProgressPct         Decimal                 @default(0.00) @map("planned_progress_pct") @db.Decimal(5, 2)
+  scheduleVariancePct        Decimal                 @default(0.00) @map("schedule_variance_pct") @db.Decimal(5, 2)
+  createdById                String                  @map("created_by_id") @db.Uuid
+  createdBy                  User                    @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  workflowInstance           WorkflowInstance?
+  statusHistories            ProjectStatusHistory[]
+  stageHistories             ProjectStageHistory[]
+  documents                  Document[]
+  milestones                 Milestone[]
+  progressUpdates            ProgressUpdate[]
+  delays                     DelayRecord[]
+  issues                     IssueRecord[]
+  risks                      RiskRecord[]
+  tenders                    Tender[]
+  contracts                  Contract[]
+  budgetSanctions            BudgetSanction[]
+  expenditures               Expenditure[]
+  inspections                Inspection[]
+  completionCertificates     CompletionCertificate[]
+  dlpDefects                 DlpDefect[]
+  assetHandovers             AssetHandover[]
+  citizenFeedbacks           CitizenFeedback[]
+  auditEvents                AuditEvent[]
+  projectAccesses            ProjectAccess[]
+  outgoingDependencies       ProjectDependency[]     @relation("DependentProject")
+  incomingDependencies       ProjectDependency[]     @relation("RequiredProject")
+  externalReferences         ExternalSystemReference[]
+  createdAt                  DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                  DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status, administrativeDepartmentId, district])
+  @@index([projectCode])
+  @@map("projects")
+}
+
+model ProjectStatusHistory {
+  id             String        @id @default(uuid()) @db.Uuid
+  projectId      String        @map("project_id") @db.Uuid
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  previousStatus ProjectStatus @map("previous_status")
+  newStatus      ProjectStatus @map("new_status")
+  reason         String        @db.Text
+  changedById    String        @map("changed_by_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([projectId])
+  @@map("project_status_histories")
+}
+
+model ProjectStageHistory {
+  id            String   @id @default(uuid()) @db.Uuid
+  projectId     String   @map("project_id") @db.Uuid
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  previousStage String   @map("previous_stage") @db.VarChar(100)
+  newStage      String   @map("new_stage") @db.VarChar(100)
+  triggerAction String   @map("trigger_action") @db.VarChar(100)
+  remarks       String   @db.Text
+  changedById   String   @map("changed_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([projectId])
+  @@map("project_stage_histories")
+}
+
+model ProjectAccess {
+  id          String   @id @default(uuid()) @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String   @map("user_id") @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessLevel String   @map("access_level") @db.VarChar(50) // READ, REVIEW, AUDIT
+  grantedById String   @map("granted_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([projectId, userId])
+  @@map("project_accesses")
+}
+
+model ProjectDependency {
+  id                String   @id @default(uuid()) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  project           Project  @relation("DependentProject", fields: [projectId], references: [id], onDelete: Cascade)
+  dependsOnProjectId String  @map("depends_on_project_id") @db.Uuid
+  dependsOnProject  Project  @relation("RequiredProject", fields: [dependsOnProjectId], references: [id], onDelete: Restrict)
+  dependencyType    String   @map("dependency_type") @db.VarChar(100) // SITE_ACCESS, UTILITY_SHIFTING, CLEARANCE
+  description       String?  @db.Text
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([projectId, dependsOnProjectId])
+  @@map("project_dependencies")
+}
+
+// ==========================================
+// 3. WORKFLOW ENGINE & APPROVALS
+// ==========================================
+
+enum WorkflowExecutionType {
+  SEQUENTIAL
+  PARALLEL_GATE
+  CONDITIONAL_BRANCH
+}
+
+enum WorkflowTaskStatus {
+  PENDING
+  IN_PROGRESS
+  RECOMMENDED
+  APPROVED
+  REJECTED
+  REWORK_REQUESTED
+  ESCALATED
+}
+
+enum ApprovalAction {
+  RECOMMEND
+  APPROVE
+  REJECT
+  RETURN_FOR_REWORK
+  DELEGATE
+}
+
+model WorkflowTemplate {
+  id               String                   @id @default(uuid()) @db.Uuid
+  code             String                   @unique @db.VarChar(50)
+  name             String                   @db.VarChar(200)
+  description      String?                  @db.Text
+  version          Int                      @default(1)
+  isActive         Boolean                  @default(true) @map("is_active")
+  projectTypes     ProjectType[]
+  stageDefinitions WorkflowStageDefinition[]
+  instances        WorkflowInstance[]
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("workflow_templates")
+}
+
+model WorkflowStageDefinition {
+  id                        String                @id @default(uuid()) @db.Uuid
+  templateId                String                @map("template_id") @db.Uuid
+  template                  WorkflowTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  stageKey                  String                @map("stage_key") @db.VarChar(100)
+  stageName                 String                @map("stage_name") @db.VarChar(200)
+  orderIndex                Int                   @map("order_index")
+  executionType             WorkflowExecutionType @default(SEQUENTIAL) @map("execution_type")
+  prerequisiteStageKeys     String[]              @map("prerequisite_stage_keys")
+  requiredDesignationLevel  Int?                  @map("required_designation_level")
+  financialThresholdMinInr  Decimal?              @map("financial_threshold_min_inr") @db.Decimal(15, 2)
+  financialThresholdMaxInr  Decimal?              @map("financial_threshold_max_inr") @db.Decimal(15, 2)
+  slaHours                  Int                   @default(72) @map("sla_hours")
+  escalationHours           Int                   @default(120) @map("escalation_hours")
+  tasks                     WorkflowTask[]
+
+  @@unique([templateId, stageKey])
+  @@map("workflow_stage_definitions")
+}
+
+model WorkflowInstance {
+  id               String           @id @default(uuid()) @db.Uuid
+  projectId        String           @unique @map("project_id") @db.Uuid
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  templateId       String           @map("template_id") @db.Uuid
+  template         WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  currentStageKey  String           @map("current_stage_key") @db.VarChar(100)
+  isCompleted      Boolean          @default(false) @map("is_completed")
+  tasks            WorkflowTask[]
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("workflow_instances")
+}
+
+model WorkflowTask {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  instanceId            String                  @map("instance_id") @db.Uuid
+  instance              WorkflowInstance        @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  stageDefinitionId     String                  @map("stage_definition_id") @db.Uuid
+  stageDefinition       WorkflowStageDefinition @relation(fields: [stageDefinitionId], references: [id], onDelete: Restrict)
+  stageKey              String                  @map("stage_key") @db.VarChar(100)
+  assignedUserId        String?                 @map("assigned_user_id") @db.Uuid
+  assignedUser          User?                   @relation("AssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedOfficeId      String?                 @map("assigned_office_id") @db.Uuid
+  assignedOffice        Office?                 @relation("AssignedOffice", fields: [assignedOfficeId], references: [id], onDelete: SetNull)
+  assignedDesignationId String?                 @map("assigned_designation_id") @db.Uuid
+  assignedDesignation   Designation?            @relation("AssignedDesignation", fields: [assignedDesignationId], references: [id], onDelete: SetNull)
+  status                WorkflowTaskStatus      @default(PENDING)
+  dueDate               DateTime                @map("due_date") @db.Timestamptz
+  escalatedAt           DateTime?               @map("escalated_at") @db.Timestamptz
+  approvalHistories     ApprovalHistory[]
+  createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([assignedUserId, status, dueDate])
+  @@map("workflow_tasks")
+}
+
+model ApprovalHistory {
+  id             String         @id @default(uuid()) @db.Uuid
+  taskId         String         @map("task_id") @db.Uuid
+  task           WorkflowTask   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actorId        String         @map("actor_id") @db.Uuid
+  actor          User           @relation("ApprovalActor", fields: [actorId], references: [id], onDelete: Restrict)
+  action         ApprovalAction
+  remarks        String         @db.Text
+  conditions     String?        @db.Text
+  delegatedToId  String?        @map("delegated_to_id") @db.Uuid
+  delegatedTo    User?          @relation("DelegatedToUser", fields: [delegatedToId], references: [id], onDelete: SetNull)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([taskId])
+  @@map("approval_histories")
+}
+
+// ==========================================
+// 4. DOCUMENTS & EVIDENCE REPOSITORY
+// ==========================================
+
+enum DocumentType {
+  CONCEPT_NOTE
+  FEASIBILITY_REPORT
+  ADMIN_SANCTION_ORDER
+  LAND_CLEARANCE_NOC
+  DPR
+  TECHNICAL_SANCTION_ORDER
+  FINANCIAL_CONCURRENCE
+  ENV_CLEARANCE
+  FOREST_CLEARANCE
+  FIRE_CLEARANCE
+  TENDER_NIT
+  BID_EVALUATION_REPORT
+  LETTER_OF_ACCEPTANCE
+  CONTRACT_AGREEMENT
+  WORK_ORDER
+  MEASUREMENT_BOOK
+  SITE_PHOTOGRAPH
+  INSPECTION_REPORT
+  COMPLETION_CERTIFICATE
+  HANDOVER_MEMO
+}
+
+model Document {
+  id                   String            @id @default(uuid()) @db.Uuid
+  projectId            String            @map("project_id") @db.Uuid
+  project              Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documentType         DocumentType      @map("document_type")
+  title                String            @db.VarChar(255)
+  description          String?           @db.Text
+  currentVersionNumber Int               @default(1) @map("current_version_number")
+  isApproved           Boolean           @default(false) @map("is_approved")
+  versions             DocumentVersion[]
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([projectId, documentType])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  documentId     String   @map("document_id") @db.Uuid
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versionNumber  Int      @map("version_number")
+  filePath       String   @map("file_path") @db.VarChar(500)
+  fileName       String   @map("file_name") @db.VarChar(255)
+  fileSizeBytes  BigInt   @map("file_size_bytes")
+  mimeType       String   @map("mime_type") @db.VarChar(100)
+  sha256Hash     String   @map("sha256_hash") @db.VarChar(64)
+  uploadedById   String   @map("uploaded_by_id") @db.Uuid
+  uploadedBy     User     @relation("UploadedByUser", fields: [uploadedById], references: [id], onDelete: Restrict)
+  revisionNotes  String?  @map("revision_notes") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([documentId, versionNumber])
+  @@index([sha256Hash])
+  @@map("document_versions")
+}
+
+// ==========================================
+// 5. MONITORING: MILESTONES, PROGRESS, DELAYS, RISKS & ISSUES
+// ==========================================
+
+enum MilestoneStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  DELAYED
+  FAILED
+}
+
+enum DelayCategory {
+  LAND_ACQUISITION
+  DESIGN_REVISION
+  STATUTORY_APPROVAL
+  FUNDING_BUDGET
+  TENDER_DISPUTE
+  CONTRACTOR_INACTION
+  LABOUR_SHORTAGE
+  MATERIAL_SHORTAGE
+  WEATHER_DISASTER
+  UTILITY_SHIFTING
+  LEGAL_STAY
+  ENVIRONMENTAL
+  SCOPE_CHANGE
+  TECHNICAL_GEOLOGICAL
+  QUALITY_RECTIFICATION
+  GOVERNMENT_POLICY
+  OTHER
+}
+
+enum SeverityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Milestone {
+  id               String            @id @default(uuid()) @db.Uuid
+  projectId        String            @map("project_id") @db.Uuid
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentMilestoneId String?          @map("parent_milestone_id") @db.Uuid
+  parentMilestone  Milestone?        @relation("MilestoneHierarchy", fields: [parentMilestoneId], references: [id], onDelete: SetNull)
+  childMilestones  Milestone[]       @relation("MilestoneHierarchy")
+  title            String            @db.VarChar(255)
+  description      String?           @db.Text
+  weightagePct     Decimal           @map("weightage_pct") @db.Decimal(5, 2)
+  plannedStartDate DateTime          @map("planned_start_date") @db.Date
+  plannedEndDate   DateTime          @map("planned_end_date") @db.Date
+  actualStartDate  DateTime?         @map("actual_start_date") @db.Date
+  actualEndDate    DateTime?         @map("actual_end_date") @db.Date
+  completionPct    Decimal           @default(0.00) @map("completion_pct") @db.Decimal(5, 2)
+  status           MilestoneStatus   @default(NOT_STARTED)
+  progressUpdates  ProgressUpdate[]
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([projectId, status])
+  @@map("milestones")
+}
+
+model ProgressUpdate {
+  id                      String     @id @default(uuid()) @db.Uuid
+  projectId               String     @map("project_id") @db.Uuid
+  project                 Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId             String?    @map("milestone_id") @db.Uuid
+  milestone               Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  physicalProgressPct     Decimal    @map("physical_progress_pct") @db.Decimal(5, 2)
+  financialExpenditureInr Decimal    @default(0.00) @map("financial_expenditure_inr") @db.Decimal(15, 2)
+  reportingDate           DateTime   @default(now()) @map("reporting_date") @db.Date
+  remarks                 String     @db.Text
+  submittedById           String     @map("submitted_by_id") @db.Uuid
+  createdAt               DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([projectId, reportingDate])
+  @@map("progress_updates")
+}
+
+model DelayRecord {
+  id                     String        @id @default(uuid()) @db.Uuid
+  projectId              String        @map("project_id") @db.Uuid
+  project                Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category               DelayCategory
+  severity               SeverityLevel @default(MEDIUM)
+  startDate              DateTime      @map("start_date") @db.Date
+  expectedResolutionDate DateTime?     @map("expected_resolution_date") @db.Date
+  actualResolutionDate   DateTime?     @map("actual_resolution_date") @db.Date
+  daysLost               Int?          @map("days_lost")
+  reason                 String        @db.Text
+  impactDescription      String        @map("impact_description") @db.Text
+  correctiveAction       String        @map("corrective_action") @db.Text
+  responsibleParty       String        @map("responsible_party") @db.VarChar(150)
+  isResolved             Boolean       @default(false) @map("is_resolved")
+  createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([projectId, isResolved])
+  @@map("delay_records")
+}
+
+model IssueRecord {
+  id             String        @id @default(uuid()) @db.Uuid
+  projectId      String        @map("project_id") @db.Uuid
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title          String        @db.VarChar(255)
+  description    String        @db.Text
+  severity       SeverityLevel @default(MEDIUM)
+  isResolved     Boolean       @default(false) @map("is_resolved")
+  resolutionNotes String?      @map("resolution_notes") @db.Text
+  reportedById   String        @map("reported_by_id") @db.Uuid
+  assignedToId   String?       @map("assigned_to_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([projectId, isResolved])
+  @@map("issue_records")
+}
+
+model RiskRecord {
+  id             String        @id @default(uuid()) @db.Uuid
+  projectId      String        @map("project_id") @db.Uuid
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title          String        @db.VarChar(255)
+  probability    Int           // 1 to 5 scale
+  impact         Int           // 1 to 5 scale
+  severity       SeverityLevel @default(MEDIUM)
+  mitigationPlan String        @map("mitigation_plan") @db.Text
+  ownerName      String        @map("owner_name") @db.VarChar(150)
+  isMitigated    Boolean       @default(false) @map("is_mitigated")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([projectId, severity])
+  @@map("risk_records")
+}
+
+// ==========================================
+// 6. PROCUREMENT, CONTRACTS & FINANCIALS
+// ==========================================
+
+model Contractor {
+  id             String      @id @default(uuid()) @db.Uuid
+  registrationNo String      @unique @map("registration_no") @db.VarChar(100)
+  companyName    String      @map("company_name") @db.VarChar(255)
+  panNumber      String      @unique @map("pan_number") @db.VarChar(20)
+  gstin          String      @unique @db.VarChar(20)
+  classGrade     String      @map("class_grade") @db.VarChar(50) // e.g., Class AA, Class A
+  contactPerson  String      @map("contact_person") @db.VarChar(150)
+  email          String      @db.VarChar(255)
+  phone          String      @db.VarChar(20)
+  contracts      Contract[]
+  bids           TenderBid[]
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("contractors")
+}
+
+model Tender {
+  id                   String      @id @default(uuid()) @db.Uuid
+  projectId            String      @map("project_id") @db.Uuid
+  project              Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tenderNoticeNo       String      @unique @map("tender_notice_no") @db.VarChar(100)
+  portalReferenceId    String?     @map("portal_reference_id") @db.VarChar(100)
+  estimatedTenderAmount Decimal    @map("estimated_tender_amount") @db.Decimal(15, 2)
+  nitPublishDate       DateTime    @map("nit_publish_date") @db.Date
+  bidSubmissionEndDate DateTime    @map("bid_submission_end_date") @db.Date
+  bidOpeningDate       DateTime    @map("bid_opening_date") @db.Date
+  status               String      @db.VarChar(50) // PUBLISHED, EVALUATED, AWARDED, CANCELLED
+  contracts            Contract[]
+  bids                 TenderBid[]
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([projectId])
+  @@map("tenders")
+}
+
+model TenderBid {
+  id             String     @id @default(uuid()) @db.Uuid
+  tenderId       String     @map("tender_id") @db.Uuid
+  tender         Tender     @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  contractorId   String     @map("contractor_id") @db.Uuid
+  contractor     Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  bidAmountInr   Decimal    @map("bid_amount_inr") @db.Decimal(15, 2)
+  submissionDate DateTime   @default(now()) @map("submission_date") @db.Timestamptz
+  isQualified    Boolean    @default(true) @map("is_qualified")
+  rank           Int?
+  remarks        String?    @db.Text
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([tenderId, contractorId])
+  @@map("tender_bids")
+}
+
+model Contract {
+  id                  String               @id @default(uuid()) @db.Uuid
+  projectId           String               @map("project_id") @db.Uuid
+  project             Project              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tenderId            String               @map("tender_id") @db.Uuid
+  tender              Tender               @relation(fields: [tenderId], references: [id], onDelete: Restrict)
+  contractorId        String               @map("contractor_id") @db.Uuid
+  contractor          Contractor           @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  contractAgreementNo String               @unique @map("contract_agreement_no") @db.VarChar(100)
+  workOrderNo         String               @unique @map("work_order_no") @db.VarChar(100)
+  workOrderDate       DateTime             @map("work_order_date") @db.Date
+  originalValueInr    Decimal              @map("original_value_inr") @db.Decimal(15, 2)
+  revisedValueInr     Decimal?             @map("revised_value_inr") @db.Decimal(15, 2)
+  scheduledStartDate  DateTime             @map("scheduled_start_date") @db.Date
+  scheduledEndDate    DateTime             @map("scheduled_end_date") @db.Date
+  actualEndDate       DateTime?            @map("actual_end_date") @db.Date
+  pbgAmountInr        Decimal              @map("pbg_amount_inr") @db.Decimal(15, 2)
+  pbgValidityDate     DateTime             @map("pbg_validity_date") @db.Date
+  variations          FinancialVariation[]
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([projectId])
+  @@map("contracts")
+}
+
+model FinancialVariation {
+  id              String   @id @default(uuid()) @db.Uuid
+  contractId      String   @map("contract_id") @db.Uuid
+  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  variationOrderNo String  @unique @map("variation_order_no") @db.VarChar(100)
+  additionalCostInr Decimal @map("additional_cost_inr") @db.Decimal(15, 2)
+  timeExtensionDays Int     @default(0) @map("time_extension_days")
+  justification   String   @db.Text
+  approvedById    String   @map("approved_by_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("financial_variations")
+}
+
+model BudgetSanction {
+  id             String   @id @default(uuid()) @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sanctionType   String   @map("sanction_type") @db.VarChar(50) // ADMIN_SANCTION, TECH_SANCTION, REVISED_SANCTION
+  orderNumber    String   @map("order_number") @db.VarChar(100)
+  orderDate      DateTime @map("order_date") @db.Date
+  sanctionAmount Decimal  @map("sanction_amount") @db.Decimal(15, 2)
+  headOfAccount  String   @map("head_of_account") @db.VarChar(100)
+  financialYear  String   @map("financial_year") @db.VarChar(20) // e.g. 2026-2027
+  remarks        String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([projectId])
+  @@map("budget_sanctions")
+}
+
+model Expenditure {
+  id            String   @id @default(uuid()) @db.Uuid
+  projectId     String   @map("project_id") @db.Uuid
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  voucherNo     String   @map("voucher_no") @db.VarChar(100)
+  voucherDate   DateTime @map("voucher_date") @db.Date
+  amountInr     Decimal  @map("amount_inr") @db.Decimal(15, 2)
+  paymentMode   String   @map("payment_mode") @db.VarChar(50)
+  payeeName     String   @map("payee_name") @db.VarChar(255)
+  headOfAccount String   @map("head_of_account") @db.VarChar(100)
+  recordedById  String   @map("recorded_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([projectId, voucherDate])
+  @@map("expenditures")
+}
+
+// ==========================================
+// 7. FIELD INSPECTIONS & EVIDENCE
+// ==========================================
+
+enum InspectionRating {
+  OUTSTANDING
+  SATISFACTORY
+  NEEDS_IMPROVEMENT
+  CRITICAL_DEFECTS_REJECTED
+}
+
+model Inspection {
+  id                  String           @id @default(uuid()) @db.Uuid
+  projectId           String           @map("project_id") @db.Uuid
+  project             Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspectorId         String           @map("inspector_id") @db.Uuid
+  inspector           User             @relation("InspectionLead", fields: [inspectorId], references: [id], onDelete: Restrict)
+  inspectionDate      DateTime         @map("inspection_date") @db.Date
+  overallRating       InspectionRating @map("overall_rating")
+  findings            String           @db.Text
+  defectsIdentified   String?          @map("defects_identified") @db.Text
+  correctiveMeasures  String?          @map("corrective_measures") @db.Text
+  isRectified         Boolean          @default(false) @map("is_rectified")
+  evidence            SiteEvidence[]
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([projectId, inspectionDate])
+  @@map("inspections")
+}
+
+model SiteEvidence {
+  id           String      @id @default(uuid()) @db.Uuid
+  inspectionId String      @map("inspection_id") @db.Uuid
+  inspection   Inspection  @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  title        String      @db.VarChar(255)
+  mediaType    String      @map("media_type") @db.VarChar(50) // PHOTO, VIDEO, MB_SCAN
+  fileUrl      String      @map("file_url") @db.VarChar(500)
+  latitude     Decimal?    @db.Decimal(10, 7)
+  longitude    Decimal?    @db.Decimal(10, 7)
+  capturedAt   DateTime    @default(now()) @map("captured_at") @db.Timestamptz
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("site_evidence")
+}
+
+// ==========================================
+// 8. AUDIT, NOTIFICATIONS & INTEGRATIONS
+// ==========================================
+
+model AuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  projectId   String?  @map("project_id") @db.Uuid
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  actorId     String?  @map("actor_id") @db.Uuid
+  actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorRole   String?  @map("actor_role") @db.VarChar(100)
+  action      String   @db.VarChar(100)
+  entityName  String   @map("entity_name") @db.VarChar(100)
+  entityId    String   @map("entity_id") @db.VarChar(100)
+  oldState    Json?    @map("old_state")
+  newState    Json?    @map("new_state")
+  reason      String?  @db.Text
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  userAgent   String?  @map("user_agent") @db.Text
+  timestamp   DateTime @default(now()) @db.Timestamptz
+
+  @@index([projectId])
+  @@index([actorId])
+  @@index([entityName, entityId])
+  @@index([timestamp])
+  @@map("audit_events")
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String   @db.VarChar(255)
+  message   String   @db.Text
+  linkUrl   String?  @map("link_url") @db.VarChar(500)
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model ExternalSystemReference {
+  id                 String    @id @default(uuid()) @db.Uuid
+  projectId          String    @map("project_id") @db.Uuid
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  systemName         String    @map("system_name") @db.VarChar(100) // E_TENDER, IFMS_TREASURY, BHUVAN_GIS
+  externalId         String    @map("external_id") @db.VarChar(200)
+  syncStatus         String    @map("sync_status") @db.VarChar(50) // SYNCED, PENDING, FAILED
+  lastSyncAt         DateTime? @map("last_sync_at") @db.Timestamptz
+  syncPayloadSummary Json?     @map("sync_payload_summary")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([systemName, externalId])
+  @@map("external_system_references")
+}
+
+// ==========================================
+// 10. COMPLETION, DLP & ASSET HANDOVER MODELS
+// ==========================================
+
+enum CompletionCertificateType {
+  PROVISIONAL
+  FINAL
+}
+
+model CompletionCertificate {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  projectId          String                    @map("project_id") @db.Uuid
+  project            Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  certificateType    CompletionCertificateType @map("certificate_type")
+  certificateNumber  String                    @unique @map("certificate_number") @db.VarChar(100)
+  issueDate          DateTime                  @map("issue_date") @db.Timestamptz
+  dlpStartDate       DateTime                  @map("dlp_start_date") @db.Timestamptz
+  dlpEndDate         DateTime                  @map("dlp_end_date") @db.Timestamptz
+  dlpDurationMonths  Int                       @map("dlp_duration_months")
+  remarks            String?                   @db.Text
+  issuedById         String                    @map("issued_by_id") @db.Uuid
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("completion_certificates")
+}
+
+model DlpDefect {
+  id                 String        @id @default(uuid()) @db.Uuid
+  projectId          String        @map("project_id") @db.Uuid
+  project            Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  defectTitle        String        @map("defect_title") @db.VarChar(255)
+  description        String        @db.Text
+  locationRef        String?       @map("location_ref") @db.VarChar(200)
+  reportedDate       DateTime      @map("reported_date") @db.Timestamptz
+  severity           SeverityLevel @default(MEDIUM)
+  isRectified        Boolean       @default(false) @map("is_rectified")
+  rectifiedDate      DateTime?     @map("rectified_date") @db.Timestamptz
+  rectificationNotes String?       @map("rectification_notes") @db.Text
+  reportedById       String        @map("reported_by_id") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("dlp_defects")
+}
+
+model AssetHandover {
+  id                  String   @id @default(uuid()) @db.Uuid
+  projectId           String   @map("project_id") @db.Uuid
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assetCode           String   @unique @map("asset_code") @db.VarChar(100)
+  assetName           String   @map("asset_name") @db.VarChar(300)
+  handoverDate        DateTime @map("handover_date") @db.Timestamptz
+  receivingDepartment String   @map("receiving_department") @db.VarChar(255)
+  assetValuationInr   Decimal  @map("asset_valuation_inr") @db.Decimal(18, 2)
+  maintenanceDivision String   @map("maintenance_division") @db.VarChar(255)
+  handoverStatus      String   @default("ACCEPTED") @map("handover_status") @db.VarChar(50)
+  remarks             String?  @db.Text
+  recordedById        String   @map("recorded_by_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("asset_handovers")
+}
+
+model CitizenFeedback {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citizenName  String   @map("citizen_name") @db.VarChar(200)
+  contactPhone String?  @map("contact_phone") @db.VarChar(20)
+  feedbackType String   @default("DEFECT_REPORT") @map("feedback_type") @db.VarChar(50) // INQUIRY, DEFECT_REPORT, APPRECIATION, GRIEVANCE
+  subject      String   @db.VarChar(300)
+  details      String   @db.Text
+  status       String   @default("SUBMITTED") @db.VarChar(50) // SUBMITTED, UNDER_REVIEW, ADDRESSED
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("citizen_feedbacks")
+}

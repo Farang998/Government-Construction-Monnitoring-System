@@ -1,0 +1,656 @@
+openapi: 3.0.3
+info:
+  title: Government Construction Project Workflow & Monitoring Platform API
+  description: Enterprise-grade, project-centric REST API for managing government infrastructure project lifecycles.
+  version: 1.0.0
+  contact:
+    name: Government Infrastructure Monitoring Directorate
+    email: support.infra@gov.in
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local Development Server
+  - url: https://infra-monitor.gov.in/api/v1
+    description: State Production Gateway
+
+tags:
+  - name: Authentication & Identity
+    description: Secure authentication, user profile, and session management
+  - name: Organization & Office Hierarchy
+    description: Departmental, Circle, Division, and Sub-Division hierarchy
+  - name: Project Registry & Proposal
+    description: Project lifecycle management and registry
+  - name: Workflow & Approvals
+    description: DAG workflow engine, approval queues, rework, and task SLAs
+  - name: Monitoring & Milestones
+    description: Physical & financial progress tracking, milestones, delays, and risks
+  - name: Field & Inspections
+    description: Field measurement book, geotagged evidence, and quality scorecards
+  - name: Documents & Versions
+    description: Document repository, SHA-256 validation, and version control
+  - name: Contracts & Financials
+    description: Contractor tenders, work orders, sanctions, expenditures, and variations
+  - name: Dashboards & Analytics
+    description: State, Department, District, and Project analytical metrics
+  - name: Audit & Compliance
+    description: Append-only tamper-evident forensic audit logs
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication & Identity]
+      summary: Officer / Contractor login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, password]
+              properties:
+                employeeId:
+                  type: string
+                  example: GJ-RNB-EE-1042
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '401':
+          description: Invalid credentials
+
+  /auth/me:
+    get:
+      tags: [Authentication & Identity]
+      summary: Get authenticated user profile with roles and jurisdiction
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+
+  /projects:
+    get:
+      tags: [Project Registry & Proposal]
+      summary: Search and filter projects with pagination
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: departmentId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: district
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListResponse'
+
+    post:
+      tags: [Project Registry & Proposal]
+      summary: Create new Project Proposal
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectProposalRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDetailResponse'
+
+  /projects/{id}:
+    get:
+      tags: [Project Registry & Proposal]
+      summary: Retrieve complete project details by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDetailResponse'
+
+  /workflows/tasks:
+    get:
+      tags: [Workflow & Approvals]
+      summary: List pending workflow tasks for the authenticated officer
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowTaskItem'
+
+  /workflows/tasks/{id}/action:
+    post:
+      tags: [Workflow & Approvals]
+      summary: Execute approval, rework, or rejection action on a workflow task
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowActionRequest'
+      responses:
+        '200':
+          description: Workflow task action completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /projects/{id}/milestones:
+    get:
+      tags: [Monitoring & Milestones]
+      summary: Get project Work Breakdown Structure (WBS) milestones
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MilestoneItem'
+
+  /projects/{id}/progress:
+    post:
+      tags: [Monitoring & Milestones]
+      summary: Record periodic physical & financial progress update
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressUpdateRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /projects/{id}/inspections:
+    post:
+      tags: [Field & Inspections]
+      summary: Submit site inspection report with geotagged evidence
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspectionSubmissionRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /dashboards/state:
+    get:
+      tags: [Dashboards & Analytics]
+      summary: State-wide infrastructure executive summary dashboard
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StateDashboardSummary'
+
+  /audit/events:
+    get:
+      tags: [Audit & Compliance]
+      summary: Query immutable audit events with forensic filtering
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: actorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEventItem'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AuthSuccessResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/UserProfileResponse'
+
+    UserProfileResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        employeeId:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        designation:
+          type: string
+        department:
+          type: string
+        office:
+          type: string
+        financialApprovalLimitInr:
+          type: number
+
+    CreateProjectProposalRequest:
+      type: object
+      required:
+        - name
+        - shortDescription
+        - projectTypeId
+        - administrativeDepartmentId
+        - executingOfficeId
+        - estimatedCostInr
+        - state
+        - district
+        - taluka
+        - cityVillage
+        - plannedStartDate
+        - plannedEndDate
+      properties:
+        name:
+          type: string
+          example: Four-Laning of Ahmedabad-Dholera Highway Package-II
+        shortDescription:
+          type: string
+          example: Upgradation from 2-lane to 4-lane expressway standard
+        detailedDescription:
+          type: string
+        projectTypeId:
+          type: string
+          format: uuid
+        administrativeDepartmentId:
+          type: string
+          format: uuid
+        executingOfficeId:
+          type: string
+          format: uuid
+        estimatedCostInr:
+          type: number
+          example: 450000000.00
+        fundingSource:
+          type: string
+          example: STATE_BUDGET
+        state:
+          type: string
+          example: Gujarat
+        district:
+          type: string
+          example: Ahmedabad
+        taluka:
+          type: string
+          example: Dholera
+        cityVillage:
+          type: string
+          example: Bavla-Dholera Stretch
+        latitude:
+          type: number
+          example: 22.2534
+        longitude:
+          type: number
+          example: 72.1983
+        plannedStartDate:
+          type: string
+          format: date
+          example: '2026-10-01'
+        plannedEndDate:
+          type: string
+          format: date
+          example: '2028-09-30'
+
+    ProjectListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectSummaryItem'
+
+    ProjectSummaryItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectCode:
+          type: string
+          example: GJ-RNB-AHM-2026-000145
+        name:
+          type: string
+        departmentName:
+          type: string
+        projectTypeName:
+          type: string
+        status:
+          type: string
+        currentStage:
+          type: string
+        estimatedCostInr:
+          type: number
+        physicalProgressPct:
+          type: number
+        financialProgressPct:
+          type: number
+        district:
+          type: string
+
+    ProjectDetailResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectCode:
+          type: string
+        name:
+          type: string
+        shortDescription:
+          type: string
+        detailedDescription:
+          type: string
+        status:
+          type: string
+        currentStage:
+          type: string
+        estimatedCostInr:
+          type: number
+        sanctionedCostInr:
+          type: number
+        contractValueInr:
+          type: number
+        totalExpenditureInr:
+          type: number
+        physicalProgressPct:
+          type: number
+        financialProgressPct:
+          type: number
+        scheduleVariancePct:
+          type: number
+
+    WorkflowTaskItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        projectCode:
+          type: string
+        projectName:
+          type: string
+        stageKey:
+          type: string
+        stageName:
+          type: string
+        status:
+          type: string
+        dueDate:
+          type: string
+          format: date-time
+
+    WorkflowActionRequest:
+      type: object
+      required:
+        - action
+        - remarks
+      properties:
+        action:
+          type: string
+          enum: [APPROVE, RECOMMEND, REJECT, RETURN_FOR_REWORK, DELEGATE]
+        remarks:
+          type: string
+          example: Verified compliance with technical specifications. Recommended for sanction.
+        targetReworkStageKey:
+          type: string
+        delegateToUserId:
+          type: string
+          format: uuid
+
+    MilestoneItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        weightagePct:
+          type: number
+        plannedStartDate:
+          type: string
+          format: date
+        plannedEndDate:
+          type: string
+          format: date
+        completionPct:
+          type: number
+        status:
+          type: string
+
+    ProgressUpdateRequest:
+      type: object
+      required:
+        - physicalProgressPct
+        - remarks
+      properties:
+        milestoneId:
+          type: string
+          format: uuid
+        physicalProgressPct:
+          type: number
+          example: 64.5
+        financialExpenditureInr:
+          type: number
+          example: 2500000.00
+        remarks:
+          type: string
+
+    InspectionSubmissionRequest:
+      type: object
+      required:
+        - inspectionDate
+        - overallRating
+        - findings
+      properties:
+        inspectionDate:
+          type: string
+          format: date
+        overallRating:
+          type: string
+          enum: [SATISFACTORY, NEEDS_IMPROVEMENT, CRITICAL_DEFECTS]
+        findings:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              mediaType:
+                type: string
+              latitude:
+                type: number
+              longitude:
+                type: number
+              fileUrl:
+                type: string
+
+    StateDashboardSummary:
+      type: object
+      properties:
+        totalProjects:
+          type: integer
+        activeProjects:
+          type: integer
+        delayedProjects:
+          type: integer
+        completedProjects:
+          type: integer
+        totalSanctionedAmountInr:
+          type: number
+        totalExpenditureInr:
+          type: number
+        averagePhysicalProgressPct:
+          type: number
+        averageFinancialProgressPct:
+          type: number
+
+    AuditEventItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        actorName:
+          type: string
+        actorRole:
+          type: string
+        action:
+          type: string
+        entityName:
+          type: string
+        reason:
+          type: string
+
+    GenericSuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully
